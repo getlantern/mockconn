@@ -21,6 +21,11 @@ func TestSucceedingDialer(t *testing.T) {
 	assert.Equal(t, 7, n)
 	received := d.Received()
 	assert.Equal(t, string(received), "Request")
+	assert.False(t, conn.(*Conn).Closed())
+	assert.False(t, d.AllClosed())
+	conn.Close()
+	assert.True(t, conn.(*Conn).Closed())
+	assert.True(t, d.AllClosed())
 }
 
 func TestFailingDialer(t *testing.T) {
