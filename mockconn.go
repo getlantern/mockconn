@@ -60,8 +60,8 @@ type dialer struct {
 
 func (d *dialer) Dial(network, addr string) (net.Conn, error) {
 	d.mx.Lock()
+	defer d.mx.Unlock()
 	d.lastDialed = addr
-	d.mx.Unlock()
 	if d.dialError != nil {
 		return nil, d.dialError
 	}

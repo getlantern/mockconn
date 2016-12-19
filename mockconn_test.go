@@ -23,6 +23,11 @@ func TestSucceedingDialer(t *testing.T) {
 	assert.Equal(t, string(received), "Request")
 	assert.False(t, conn.(*Conn).Closed())
 	assert.False(t, d.AllClosed())
+	var buf [10]byte
+	n, err = conn.Read(buf[:])
+	assert.Equal(t, 8, n)
+	assert.NoError(t, err)
+	assert.Equal(t, []byte("Response"), buf[:8])
 	conn.Close()
 	assert.True(t, conn.(*Conn).Closed())
 	assert.True(t, d.AllClosed())
