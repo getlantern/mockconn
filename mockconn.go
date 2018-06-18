@@ -60,8 +60,8 @@ type dialer struct {
 
 func (d *dialer) Dial(network, addr string) (net.Conn, error) {
 	d.mx.Lock()
-	defer d.mx.Unlock()
 	d.lastDialed = addr
+	d.mx.Unlock()
 	if d.dialError != nil {
 		return nil, d.dialError
 	}
@@ -99,8 +99,31 @@ func (d *dialer) AllClosed() bool {
 }
 
 func New(received *bytes.Buffer, responseData io.Reader) *Conn {
+	return NewConn(received, responseData, nil, nil)
+}
+
+// NewFailingOnRead returns a connection that fails on read using a static
+// error.
+func NewFailingOnRead(received *bytes.Buffer, responseData io.Reader, readError error) *Conn {
+	return NewConn(received, responseData, readError, nil)
+}
+
+// NewFailingOnWrite returns a connection that fails on write using a static
+// error.
+func NewFailingOnWrite(received *bytes.Buffer, responseData io.Reader, writeError error) *Conn {
+	return NewConn(received, responseData, nil, writeError)
+}
+
+// NewConn creates a new mock net.Conn.
+func NewConn(received *bytes.Buffer, responseData io.Reader, readError error, writeError error) *Conn {
 	var mx sync.RWMutex
-	return &Conn{received: received, responseData: responseData, mx: &mx}
+	if received == nil {
+		received = bytes.NewBuffer(nil)
+	}
+	if responseData == nil {
+		responseData = bytes.NewReader([]byte{})
+	}
+	return &Conn{received: received, responseData: responseData, readError: readError, writeError: writeError, mx: &mx}
 }
 
 type Conn struct {
@@ -108,6 +131,8 @@ type Conn struct {
 	received     *bytes.Buffer
 	closed       bool
 	onClose      func()
+	writeError   error
+	readError    error
 	mx           *sync.RWMutex
 }
 
@@ -117,12 +142,18 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 	if c.closed {
 		return 0, io.ErrClosedPipe
 	}
+	if c.readError != nil {
+		return 0, c.readError
+	}
 	return c.responseData.Read(b)
 }
 
 func (c *Conn) Write(b []byte) (n int, err error) {
 	c.mx.Lock()
 	defer c.mx.Unlock()
+	if c.writeError != nil {
+		return 0, c.writeError
+	}
 	return c.received.Write(b)
 }
 
@@ -145,11 +176,11 @@ func (c *Conn) Closed() bool {
 }
 
 func (c *Conn) LocalAddr() net.Addr {
-	return &net.TCPAddr{net.IP{127, 0, 0, 1}, 1234, ""}
+	return nil
 }
 
 func (c *Conn) RemoteAddr() net.Addr {
-	return &net.TCPAddr{net.IP{8, 8, 8, 8}, 1234, ""}
+	return nil
 }
 
 func (c *Conn) SetDeadline(t time.Time) error {
