@@ -3,6 +3,7 @@ package mockconn
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -38,4 +39,24 @@ func TestFailingDialer(t *testing.T) {
 	d := FailingDialer(err)
 	_, actualErr := d.Dial("tcp", "doesn't matter")
 	assert.Equal(t, err, actualErr)
+}
+
+func TestSlowDialer(t *testing.T) {
+	delay := 100 * time.Millisecond
+	d := SlowDialer(SucceedingDialer([]byte{}), delay)
+	start := time.Now()
+	_, err := d.Dial("tcp", "doesn't matter")
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.InDelta(t, delay.Nanoseconds(), time.Since(start).Nanoseconds(), float64(10*time.Millisecond))
+
+	expectedError := errors.New("Test error")
+	d = SlowDialer(FailingDialer(expectedError), delay)
+	start = time.Now()
+	_, err = d.Dial("tcp", "doesn't matter")
+	if !assert.Equal(t, expectedError, err) {
+		return
+	}
+	assert.InDelta(t, delay.Nanoseconds(), time.Since(start).Nanoseconds(), float64(10*time.Millisecond))
 }

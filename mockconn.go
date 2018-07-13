@@ -49,8 +49,20 @@ func FailingDialer(dialError error) Dialer {
 	}
 }
 
+// SlowDialer wraps a dialer to add a delay when dialing it.
+func SlowDialer(d Dialer, delay time.Duration) Dialer {
+	d2, ok := d.(*dialer)
+	if !ok {
+		return d
+	}
+	d3 := *d2
+	d3.delay += delay
+	return &d3
+}
+
 type dialer struct {
 	dialError    error
+	delay        time.Duration
 	responseData []byte
 	lastDialed   string
 	numOpen      int
@@ -62,6 +74,9 @@ func (d *dialer) Dial(network, addr string) (net.Conn, error) {
 	d.mx.Lock()
 	d.lastDialed = addr
 	d.mx.Unlock()
+	if d.delay > 0 {
+		time.Sleep(d.delay)
+	}
 	if d.dialError != nil {
 		return nil, d.dialError
 	}
