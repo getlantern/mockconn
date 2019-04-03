@@ -28,22 +28,14 @@ type Dialer interface {
 	AllClosed() bool
 }
 
-type responseReader struct{ read func(b []byte) (int, error) }
-
-func (r responseReader) Read(b []byte) (int, error) {
-	return r.read(b)
-}
-
 // SucceedingDialer constructs a new Dialer that responds with the given canned
-// responseReader.
+// responseData.
 func SucceedingDialer(responseData []byte) Dialer {
 	var mx sync.RWMutex
 	return &dialer{
-		responseReader: responseReader{func(b []byte) (int, error) {
-			return copy(b, responseData), nil
-		}},
-		received: &bytes.Buffer{},
-		mx:       &mx,
+		responseData: responseData,
+		received:     &bytes.Buffer{},
+		mx:           &mx,
 	}
 }
 
@@ -68,22 +60,34 @@ func SlowDialer(d Dialer, delay time.Duration) Dialer {
 	return &d3
 }
 
+type slowReader struct {
+	delay time.Duration
+	r     io.Reader
+}
+
+func (r slowReader) Read(b []byte) (int, error) {
+	time.Sleep(r.delay)
+	return r.r.Read(b)
+}
+
+type slowReaderDialer struct {
+	Dialer
+	delay time.Duration
+}
+
+func (d slowReaderDialer) Dial(network, addr string) (net.Conn, error) {
+	conn, err := d.Dialer.Dial(network, addr)
+	conn2 := conn.(*Conn)
+	if conn2 != nil {
+		conn2.responseReader = slowReader{d.delay, conn2.responseReader}
+	}
+	return conn2, err
+}
+
 // SlowResponder wraps a dialer to add a delay when writing response to the
 // dialed connection.
 func SlowResponder(d Dialer, delay time.Duration) Dialer {
-	d2, ok := d.(*dialer)
-	if !ok {
-		return d
-	}
-	oldRR := d2.responseReader
-	d3 := *d2
-	d3.responseReader = responseReader{
-		func(b []byte) (int, error) {
-			time.Sleep(delay)
-			return oldRR.Read(b)
-		},
-	}
-	return &d3
+	return slowReaderDialer{d, delay}
 }
 
 // AutoClose wraps a dialer to close the connection automatically after writing
@@ -99,14 +103,14 @@ func AutoClose(d Dialer) Dialer {
 }
 
 type dialer struct {
-	dialError      error
-	delay          time.Duration
-	autoClose      bool
-	responseReader io.Reader
-	lastDialed     string
-	numOpen        int
-	received       *bytes.Buffer
-	mx             *sync.RWMutex
+	dialError    error
+	delay        time.Duration
+	autoClose    bool
+	responseData []byte
+	lastDialed   string
+	numOpen      int
+	received     *bytes.Buffer
+	mx           *sync.RWMutex
 }
 
 func (d *dialer) Dial(network, addr string) (net.Conn, error) {
@@ -122,7 +126,7 @@ func (d *dialer) Dial(network, addr string) (net.Conn, error) {
 	d.numOpen++
 	return &Conn{
 		autoClose:      d.autoClose,
-		responseReader: d.responseReader,
+		responseReader: bytes.NewBuffer(d.responseData),
 		received:       d.received,
 		mx:             d.mx,
 		onClose: func() {

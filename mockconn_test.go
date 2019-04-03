@@ -2,6 +2,7 @@ package mockconn
 
 import (
 	"errors"
+	"io"
 	"testing"
 	"time"
 
@@ -29,6 +30,10 @@ func TestSucceedingDialer(t *testing.T) {
 	assert.Equal(t, 8, n)
 	assert.NoError(t, err)
 	assert.Equal(t, []byte("Response"), buf[:8])
+	n, err = conn.Read(buf[:])
+	assert.Equal(t, io.EOF, err, "read again from the connection should get EOF")
+	assert.Equal(t, 0, n)
+
 	conn.Close()
 	assert.True(t, conn.(*Conn).Closed())
 	assert.True(t, d.AllClosed())
