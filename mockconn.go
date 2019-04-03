@@ -86,9 +86,22 @@ func SlowResponder(d Dialer, delay time.Duration) Dialer {
 	return &d3
 }
 
+// AutoClose wraps a dialer to close the connection automatically after writing
+// response.
+func AutoClose(d Dialer) Dialer {
+	d2, ok := d.(*dialer)
+	if !ok {
+		return d
+	}
+	d3 := *d2
+	d3.autoClose = true
+	return &d3
+}
+
 type dialer struct {
 	dialError      error
 	delay          time.Duration
+	autoClose      bool
 	responseReader io.Reader
 	lastDialed     string
 	numOpen        int
@@ -108,6 +121,7 @@ func (d *dialer) Dial(network, addr string) (net.Conn, error) {
 	}
 	d.numOpen++
 	return &Conn{
+		autoClose:      d.autoClose,
 		responseReader: d.responseReader,
 		received:       d.received,
 		mx:             d.mx,
@@ -169,6 +183,7 @@ func NewConn(received *bytes.Buffer, responseReader io.Reader, readError error, 
 
 type Conn struct {
 	responseReader io.Reader
+	autoClose      bool
 	received       *bytes.Buffer
 	closed         bool
 	onClose        func()
@@ -178,6 +193,11 @@ type Conn struct {
 }
 
 func (c *Conn) Read(b []byte) (n int, err error) {
+	defer func() {
+		if c.autoClose {
+			c.Close()
+		}
+	}()
 	c.mx.RLock()
 	defer c.mx.RUnlock()
 	if c.closed {

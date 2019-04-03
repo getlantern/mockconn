@@ -77,3 +77,20 @@ func TestSlowResponder(t *testing.T) {
 	assert.InDelta(t, delay.Nanoseconds(), time.Since(start).Nanoseconds(), float64(10*time.Millisecond))
 	conn.Close()
 }
+
+func TestAutoClose(t *testing.T) {
+	d := AutoClose(SucceedingDialer([]byte("Response")))
+	conn, err := d.Dial("tcp", "doesn't matter")
+	if !assert.NoError(t, err) {
+		return
+	}
+	_, err = conn.Write([]byte("Request"))
+	if !assert.NoError(t, err) {
+		return
+	}
+	var buf [10]byte
+	_, _ = conn.Read(buf[:])
+	assert.Equal(t, []byte("Response"), buf[:8])
+	t.Log(d.(*dialer).numOpen)
+	assert.True(t, d.AllClosed(), "connection should be closed automatically")
+}
