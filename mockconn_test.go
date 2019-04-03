@@ -60,3 +60,20 @@ func TestSlowDialer(t *testing.T) {
 	}
 	assert.InDelta(t, delay.Nanoseconds(), time.Since(start).Nanoseconds(), float64(10*time.Millisecond))
 }
+
+func TestSlowResponder(t *testing.T) {
+	delay := 50 * time.Millisecond
+	d := SlowResponder(SucceedingDialer([]byte("Response")), delay)
+	conn, err := d.Dial("tcp", "doesn't matter")
+	if !assert.NoError(t, err) {
+		return
+	}
+	var buf [10]byte
+	start := time.Now()
+	n, err := conn.Read(buf[:])
+	assert.Equal(t, 8, n)
+	assert.NoError(t, err)
+	assert.Equal(t, []byte("Response"), buf[:8])
+	assert.InDelta(t, delay.Nanoseconds(), time.Since(start).Nanoseconds(), float64(10*time.Millisecond))
+	conn.Close()
+}

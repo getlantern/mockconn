@@ -28,14 +28,22 @@ type Dialer interface {
 	AllClosed() bool
 }
 
+type responseReader struct{ read func(b []byte) (int, error) }
+
+func (r responseReader) Read(b []byte) (int, error) {
+	return r.read(b)
+}
+
 // SucceedingDialer constructs a new Dialer that responds with the given canned
-// responseData.
+// responseReader.
 func SucceedingDialer(responseData []byte) Dialer {
 	var mx sync.RWMutex
 	return &dialer{
-		responseData: responseData,
-		received:     &bytes.Buffer{},
-		mx:           &mx,
+		responseReader: responseReader{func(b []byte) (int, error) {
+			return copy(b, responseData), nil
+		}},
+		received: &bytes.Buffer{},
+		mx:       &mx,
 	}
 }
 
@@ -60,14 +68,32 @@ func SlowDialer(d Dialer, delay time.Duration) Dialer {
 	return &d3
 }
 
+// SlowResponder wraps a dialer to add a delay when writing response to the
+// dialed connection.
+func SlowResponder(d Dialer, delay time.Duration) Dialer {
+	d2, ok := d.(*dialer)
+	if !ok {
+		return d
+	}
+	oldRR := d2.responseReader
+	d3 := *d2
+	d3.responseReader = responseReader{
+		func(b []byte) (int, error) {
+			time.Sleep(delay)
+			return oldRR.Read(b)
+		},
+	}
+	return &d3
+}
+
 type dialer struct {
-	dialError    error
-	delay        time.Duration
-	responseData []byte
-	lastDialed   string
-	numOpen      int
-	received     *bytes.Buffer
-	mx           *sync.RWMutex
+	dialError      error
+	delay          time.Duration
+	responseReader io.Reader
+	lastDialed     string
+	numOpen        int
+	received       *bytes.Buffer
+	mx             *sync.RWMutex
 }
 
 func (d *dialer) Dial(network, addr string) (net.Conn, error) {
@@ -82,9 +108,9 @@ func (d *dialer) Dial(network, addr string) (net.Conn, error) {
 	}
 	d.numOpen++
 	return &Conn{
-		responseData: bytes.NewBuffer(d.responseData),
-		received:     d.received,
-		mx:           d.mx,
+		responseReader: d.responseReader,
+		received:       d.received,
+		mx:             d.mx,
 		onClose: func() {
 			d.numOpen--
 		},
@@ -113,42 +139,42 @@ func (d *dialer) AllClosed() bool {
 	return d.numOpen == 0
 }
 
-func New(received *bytes.Buffer, responseData io.Reader) *Conn {
-	return NewConn(received, responseData, nil, nil)
+func New(received *bytes.Buffer, responseReader io.Reader) *Conn {
+	return NewConn(received, responseReader, nil, nil)
 }
 
 // NewFailingOnRead returns a connection that fails on read using a static
 // error.
-func NewFailingOnRead(received *bytes.Buffer, responseData io.Reader, readError error) *Conn {
-	return NewConn(received, responseData, readError, nil)
+func NewFailingOnRead(received *bytes.Buffer, responseReader io.Reader, readError error) *Conn {
+	return NewConn(received, responseReader, readError, nil)
 }
 
 // NewFailingOnWrite returns a connection that fails on write using a static
 // error.
-func NewFailingOnWrite(received *bytes.Buffer, responseData io.Reader, writeError error) *Conn {
-	return NewConn(received, responseData, nil, writeError)
+func NewFailingOnWrite(received *bytes.Buffer, responseReader io.Reader, writeError error) *Conn {
+	return NewConn(received, responseReader, nil, writeError)
 }
 
 // NewConn creates a new mock net.Conn.
-func NewConn(received *bytes.Buffer, responseData io.Reader, readError error, writeError error) *Conn {
+func NewConn(received *bytes.Buffer, responseReader io.Reader, readError error, writeError error) *Conn {
 	var mx sync.RWMutex
 	if received == nil {
 		received = bytes.NewBuffer(nil)
 	}
-	if responseData == nil {
-		responseData = bytes.NewReader([]byte{})
+	if responseReader == nil {
+		responseReader = bytes.NewReader([]byte{})
 	}
-	return &Conn{received: received, responseData: responseData, readError: readError, writeError: writeError, mx: &mx}
+	return &Conn{received: received, responseReader: responseReader, readError: readError, writeError: writeError, mx: &mx}
 }
 
 type Conn struct {
-	responseData io.Reader
-	received     *bytes.Buffer
-	closed       bool
-	onClose      func()
-	writeError   error
-	readError    error
-	mx           *sync.RWMutex
+	responseReader io.Reader
+	received       *bytes.Buffer
+	closed         bool
+	onClose        func()
+	writeError     error
+	readError      error
+	mx             *sync.RWMutex
 }
 
 func (c *Conn) Read(b []byte) (n int, err error) {
@@ -160,7 +186,7 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 	if c.readError != nil {
 		return 0, c.readError
 	}
-	return c.responseData.Read(b)
+	return c.responseReader.Read(b)
 }
 
 func (c *Conn) Write(b []byte) (n int, err error) {
