@@ -241,11 +241,11 @@ func (c *Conn) Closed() bool {
 }
 
 func (c *Conn) LocalAddr() net.Addr {
-	return nil
+	return &net.TCPAddr{net.ParseIP("127.0.0.1"), 1234, ""}
 }
 
 func (c *Conn) RemoteAddr() net.Addr {
-	return nil
+	return &net.TCPAddr{net.ParseIP("127.0.0.1"), 4321, ""}
 }
 
 func (c *Conn) SetDeadline(t time.Time) error {
