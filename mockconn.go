@@ -123,7 +123,9 @@ func (d *dialer) Dial(network, addr string) (net.Conn, error) {
 	if d.dialError != nil {
 		return nil, d.dialError
 	}
+	d.mx.Lock()
 	d.numOpen++
+	d.mx.Unlock()
 	return &Conn{
 		autoClose:      d.autoClose,
 		responseReader: bytes.NewBuffer(d.responseData),
