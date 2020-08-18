@@ -2,6 +2,7 @@ package mockconn
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net"
 	"sync"
@@ -17,6 +18,9 @@ type Dialer interface {
 
 	// Like net.DialTimeout
 	DialTimeout(network, addr string, timeout time.Duration) (net.Conn, error)
+
+	// Like net.DialContext
+	DialContext(ctx context.Context, network, addr string) (net.Conn, error)
 
 	// Gets the last dialed address
 	LastDialed() string
@@ -138,6 +142,10 @@ func (d *dialer) Dial(network, addr string) (net.Conn, error) {
 }
 
 func (d *dialer) DialTimeout(network, addr string, timeout time.Duration) (net.Conn, error) {
+	return d.Dial(network, addr)
+}
+
+func (d *dialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
 	return d.Dial(network, addr)
 }
 
